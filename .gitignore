@@ -1,0 +1,6 @@
+lake/
+__pycache__/
+*.pyc
+target/
+.DS_Store
+.venv/

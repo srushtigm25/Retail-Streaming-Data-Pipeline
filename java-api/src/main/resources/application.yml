@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:trino://trino:8080/delta/gold
+    driver-class-name: io.trino.jdbc.TrinoDriver
+    username: lakehouse-api
+  cache:
+    cache-names: salesSummary,salesSummaryByRegion
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=15m
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

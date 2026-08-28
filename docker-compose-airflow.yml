@@ -1,0 +1,111 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PARALLELISM: "1"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/lakehouse/airflow_dags
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+
+    # Shared secrets for Airflow 3 API and task execution authentication.
+    # All Airflow containers inherit the same values.
+    AIRFLOW__API__SECRET_KEY: retail-lakehouse-local-secret
+    AIRFLOW__API_AUTH__JWT_SECRET: retail-lakehouse-jwt-secret-2026
+
+    PYSPARK_SUBMIT_ARGS: "--master local[1] --driver-memory 1g --conf spark.sql.shuffle.partitions=4 --conf spark.default.parallelism=4 pyspark-shell"
+    SPARK_LOCAL_IP: "127.0.0.1"
+
+  volumes:
+    - .:/opt/lakehouse
+
+  working_dir: /opt/lakehouse
+
+
+services:
+
+  airflow-postgres:
+    image: postgres:15
+    container_name: retail-airflow-postgres
+
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: retail-airflow-init
+
+    command: db migrate
+
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+
+    restart: "no"
+
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: retail-airflow-api-server
+
+    command: api-server
+
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+    ports:
+      - "8081:8080"
+
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: retail-airflow-dag-processor
+
+    command: dag-processor
+
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: retail-airflow-scheduler
+
+    command: scheduler
+
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_started
+      airflow-dag-processor:
+        condition: service_started
+
+
+volumes:
+  airflow-postgres-data:
